@@ -10,7 +10,7 @@ const RegistrationDetails = () => {
 
   useEffect(() => {
     fetch(
-      "http://localhost:5000/registrationDetails?email=" + loggedInUser.email
+      "https://pacific-badlands-82158.herokuapp.com/registrationDetails?email=" + loggedInUser.email
     )
       .then((res) => res.json())
       .then((data) => {
@@ -19,7 +19,7 @@ const RegistrationDetails = () => {
   }, []);
 
   const handleDelete = (id) => {
-    fetch(`http://localhost:5000/delete/${id}`, {
+    fetch(`https://pacific-badlands-82158.herokuapp.com/delete/${id}`, {
       method: "DELETE",
     })
       .then((res) => res.json())
@@ -39,7 +39,7 @@ const RegistrationDetails = () => {
             <img src={logo} alt="logo" width="200" />
           </Link>
           <div className="link">
-            <Link to='/'>Home</Link>
+            <Link to="/">Home</Link>
             <Link>Donation</Link>
             <Link>Events</Link>
             <Link>Blog</Link>
@@ -53,14 +53,15 @@ const RegistrationDetails = () => {
       <div>
         <div className=" container">
           {detail.map((d) => (
-        
-              <div className=" d-flex  justify-content-between ">
-               <div className=" d-flex justify-content-between align-items-center activity">
-               <div className="col-md-6 ml-0 pl-0">
+            <div className=" d-flex row justify-content-between ">
+              <div className=" d-flex  justify-content-between align-items-center activity">
+                <div className="col-md-6 ml-0 pl-0">
                   <img src={d.img} alt="" width="200" height="200" />
                 </div>
                 <div className="col-md-6 ml-2 ">
-                  <h5> <b>{d.title}</b> </h5>
+                  <h5>
+                   <b>{d.title}</b>
+                  </h5>
                   <button
                     onClick={() => handleDelete(d._id)}
                     className="btn btn-primary mt-4"
@@ -68,9 +69,8 @@ const RegistrationDetails = () => {
                     Cancel
                   </button>
                 </div>
-               </div>
               </div>
-            
+            </div>
           ))}
         </div>
       </div>

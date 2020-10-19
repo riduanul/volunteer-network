@@ -80,13 +80,12 @@ app.get('/activityData', (req, res) => {
   })
 })
 
+app.get('/', (req, res) => {
+  req.send("Hello from db it's working")
+})
 
-
-    app.get('/', (req, res) => {
-    res.send('Hello World!')
-  })
 });
 
 
 
-app.listen(port)
+app.listen( process.env.PORT || port)

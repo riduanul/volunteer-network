@@ -7,13 +7,13 @@ import trash from "../../resource/logos/trash-2 9.png";
 const Admin = () => {
   const [activities, setActivities] = useState([]);
   useEffect(() => {
-    fetch("http://localhost:5000/activityData")
+    fetch("https://pacific-badlands-82158.herokuapp.com//activityData")
       .then((res) => res.json())
       .then((data) => setActivities(data));
   }, []);
 
   const handleDelete = (id) => {
-    fetch(`http://localhost:5000/delete/${id}`, {
+    fetch(`https://pacific-badlands-82158.herokuapp.com//delete/${id}`, {
       method: "DELETE",
     })
       .then((res) => res.json())
@@ -45,36 +45,41 @@ const Admin = () => {
       </div>
       <div className="row">
         <div className="col-md-2 ml-5 mt-5">
-            <a href="list">Volunteer Register List</a> <br/>
-            <a href="list">Add Event</a>
+          <a href="list">Volunteer Register List</a> <br />
+          <a href="list">Add Event</a>
         </div>
         <div className="bg-color">
-        <div className="col-md-10 table-style">
-          
-           <table>
-           <th>
-              <td>Name</td>
-              <td>Email Id</td>
-              <td>Registration Date</td>
-              <td>Volunteer list</td>
-              <td>Action</td>
-            </th>
-           
-          {activities.map((activity) => (
-            
-               <tr>
+          <div className="col-md-10 table-style">
+            <table>
+              <th>
+                <td>Name</td>
+                <td>Email Id</td>
+                <td>Registration Date</td>
+                <td>Volunteer list</td>
+                <td>Action</td>
+              </th>
+
+              {activities.map((activity) => (
+                <tr>
                   <td>{activity.name}</td>
                   <td>{activity.email}</td>
                   <td>{activity.date}</td>
                   <td>{activity.title}</td>
-                  <button className='btn btn-danger' onClick={() => handleDelete(activity._id)}>
-                    <img style={{color:'red'}}src={trash} alt="trash" width='10'/>
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => handleDelete(activity._id)}
+                  >
+                    <img
+                      style={{ color: "red" }}
+                      src={trash}
+                      alt="trash"
+                      width="10"
+                    />
                   </button>
                 </tr>
-              
-          ))}
-          </table>
-        </div>
+              ))}
+            </table>
+          </div>
         </div>
       </div>
     </div>
