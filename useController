@@ -1,0 +1,286 @@
+exports.createGameResult = catchAsyncErrors(async (req, res, next) => {
+    const { imageId, duration } = req.body;
+  
+    const image = await Image.findById(imageId);
+  
+    const purchasedImage = req.user.purchased_images.find(
+      (img) => img.image.toString() === imageId && !img.isUsedForGame
+    );
+  
+    if (!purchasedImage) {
+      return next(new ErrorHandler("Please buy the image or wait 15 days."));
+    }
+  
+    // Create a new game result
+    const newGameResult = await GameResult.create({
+      userId: req.user._id,
+      imageId,
+      duration,
+    });
+  
+    // Update leaderboard
+    const updateLeaderBoard = await GameLeaderBoard.create({
+      user: req.user._id,
+      duration,
+    });
+  
+    // Mark the image as used and update `played_at`
+    purchasedImage.isUsedForGame = true;
+    purchasedImage.played_at = new Date();
+    await req.user.save();
+  
+    res.status(200).json({
+      success: true,
+      message: "Game result created successfully",
+      newGameResult,
+      updateLeaderBoard,
+    });
+  });
+
+  exports.getPurchasedImages = catchAsyncErrors(async (req, res, next) => {
+    const user = await User.findById(req.params.id).populate({
+      path: "purchased_images.image",
+      select: "image_url likes likesCount title bought_by",
+    });
+  
+    if (!user) {
+      return next(new ErrorHandler("User not found", 404));
+    }
+  
+    const purchasedImages = user.purchased_images.filter(
+      (img) => !img.isUsedForGame
+    );
+  
+    res.status(200).json({
+      success: true,
+      message: "Successfully fetched purchased images",
+      purchasedImages,
+    });
+  });
+
+  
+  exports.purchaseImage = catchAsyncErrors(async (req, res, next) => {
+    const { userId, imageId, price } = req.body;
+    const user = await User.findById(userId);
+  
+    const purchasedImage = user.purchased_images.find(
+      (img) => img.image.toString() === imageId
+    );
+  
+    if (purchasedImage) {
+      if (
+        purchasedImage.isUsedForGame &&
+        new Date() - new Date(purchasedImage.played_at) < 15 * 24 * 60 * 60 * 1000
+      ) {
+        return next(
+          new ErrorHandler(
+            "You cannot purchase this image again within 15 days of playing."
+          )
+        );
+      }
+  
+      return next(new ErrorHandler("You have already purchased this image."));
+    }
+  
+    if (user.wallet < price) {
+      return next(new ErrorHandler("Insufficient coins. Please top up.", 401));
+    }
+  
+    const image = await Image.findById(imageId).populate(
+      "owner",
+      "_id name profile_pic"
+    );
+  
+    // Deduct price and update user wallet
+    user.wallet -= price;
+  
+    // Update image and user data
+    image.sold_count += 1;
+    image.owner.total_sales += price;
+    image.bought_by.push(user._id);
+    user.purchased_images.push({ image: image._id });
+  
+    await image.save();
+    await user.save();
+  
+    res.status(200).json({
+      success: true,
+      message: "Successfully purchased the image",
+      image,
+    });
+  });
+  
+
+  //purchase multiple images
+exports.purchaseImages = catchAsyncErrors(async (req, res, next) => {
+    const { userId, imageIds, totalPrice } = req.body; // Expecting an array of image IDs and total price
+    const user = await User.findById(userId);
+  
+    if (!user) {
+      return next(new ErrorHandler("User not found", 404));
+    }
+  
+    // Check if the user has sufficient coins in their wallet
+    if (user.wallet < totalPrice) {
+      return next(
+        new ErrorHandler("Insufficient coins. Please purchase more coins.", 401)
+      );
+    }
+  
+    // Fetch the images to be purchased
+    const images = await Image.find({ _id: { $in: imageIds } });
+  
+    // Ensure all requested images exist
+    if (images.length !== imageIds.length) {
+      return next(new ErrorHandler("Some images not found.", 404));
+    }
+  
+    // Check if the user has already purchased any of these images
+    const alreadyPurchased = images.filter((image) =>
+      user.purchased_images.some(
+        (purchased) => purchased.image.toString() === image._id.toString()
+      )
+    );
+  
+    if (alreadyPurchased.length > 0) {
+      return next(
+        new ErrorHandler(
+          "Some images are already purchased. Please check your gallery.",
+          400
+        )
+      );
+    }
+  
+    // Deduct the total price from the user's wallet
+    user.wallet -= totalPrice;
+  
+    // Process the purchase
+    images.forEach((image) => {
+      // Update image's sold count and buyer details
+      image.sold_count += 1;
+      image.bought_by.push(user._id);
+  
+      // Update the image owner's total sales
+      const owner = image.owner; // Assuming owner is populated or fetched
+      owner.total_sells += image.price;
+  
+      // Add to user's purchased images
+      user.purchased_images.push({ image: image._id });
+    });
+  
+    // Save all changes
+    await Promise.all([user.save(), ...images.map((image) => image.save())]);
+  
+    res.status(200).json({
+      success: true,
+      message: "Images purchased successfully!",
+      purchasedImages: images,
+    });
+  });
+
+  const catchAsyncErrors = require("../middlewares/catchAsyncErrors");
+const GameLeaderBoard = require("../Models/gameLeaderBoardModel");
+const Competition = require("../Models/competitionModel");
+const Prize = require("../Models/prizeModel");
+const User = require("../Models/userModel");
+const Notification = require("../Models/notificationModel"); // Notification model
+const ErrorHandler = require("../utils/errorHandler");
+
+exports.distributePrizes = catchAsyncErrors(async (req, res, next) => {
+  const { date, type } = req.body; // `type` can be "game" or "competition"
+
+  if (!type || !["game", "competition"].includes(type)) {
+    return next(new ErrorHandler("Invalid type. Use 'game' or 'competition'.", 400));
+  }
+
+  // Default to today's date if not provided
+  const prizeDate = date || new Date().toISOString().split("T")[0];
+
+  const startOfDay = new Date(prizeDate);
+  const endOfDay = new Date(prizeDate);
+  endOfDay.setUTCHours(23, 59, 59, 999);
+
+  // Fetch the leaderboard based on type
+  let leaderboard;
+  if (type === "game") {
+    leaderboard = await GameLeaderBoard.find({
+      date: { $gte: startOfDay, $lte: endOfDay },
+    })
+      .sort({ duration: 1 })
+      .limit(10)
+      .populate("user", "name wallet");
+  } else if (type === "competition") {
+    const competition = await Competition.findOne({
+      createdAt: { $gte: startOfDay, $lte: endOfDay },
+    });
+
+    if (!competition) {
+      return next(new ErrorHandler("Competition not found for the given date.", 404));
+    }
+
+    leaderboard = await Image.find({ competition: competition._id })
+      .sort({ likesCount: -1 })
+      .limit(10)
+      .populate("owner", "name wallet");
+  }
+
+  if (!leaderboard || leaderboard.length === 0) {
+    return next(new ErrorHandler("No winners found for the given date.", 404));
+  }
+
+  // Fetch prizes for the day
+  const prizes = await Prize.find({ date: prizeDate }).sort({ rank: 1 });
+
+  if (!prizes || prizes.length === 0) {
+    return next(new ErrorHandler("Prizes not set for the given date.", 404));
+  }
+
+  // Distribute prizes and notify users
+  const prizeDistribution = [];
+
+  for (let i = 0; i < leaderboard.length; i++) {
+    const winner = leaderboard[i].user || leaderboard[i].owner; // Game has user, competition has owner
+    const prize = prizes[i];
+
+    if (!prize) break; // No more prizes to distribute
+
+    if (prize.type === "physical") {
+      // Notify the user about physical prize delivery
+      await Notification.create({
+        user: winner._id,
+        message: `Congratulations! You have won a ${prize.name}. It will be sent to you via courier shortly.`,
+      });
+
+      prizeDistribution.push({
+        user: winner._id,
+        prize: prize.name,
+        message: `Physical prize (${prize.name}) notification sent.`,
+      });
+    } else if (prize.type === "coin") {
+      // Add coins to user's wallet
+      winner.wallet += prize.value;
+      await winner.save();
+
+      // Notify the user about wallet update
+      await Notification.create({
+        user: winner._id,
+        message: `Congratulations! You have won ${prize.value} coins. They have been added to your wallet.`,
+      });
+
+      prizeDistribution.push({
+        user: winner._id,
+        prize: `${prize.value} coins`,
+        message: `${prize.value} coins added to wallet and notification sent.`,
+      });
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Prizes distributed successfully!",
+    prizeDistribution,
+  });
+});
+
+  
+  
