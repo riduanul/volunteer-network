@@ -1,132 +1,53 @@
-// Purchase all cart items
-exports.purchaseAllCartItems = catchAsyncErrors(async (req, res, next) => {
-  const user = await User.findById(req.user._id);
-  if (!user) {
-    return next(new ErrorHandler("User not found", 404));
+const get_earnings = async (interval) => {
+  const now = new Date();
+  let startDate;
+
+  switch (interval) {
+    case "daily":
+      startDate = new Date(now.setHours(0, 0, 0, 0));
+      break;
+    case "weekly":
+      const firstDayOfWeek = now.getDate() - now.getDay();
+      startDate = new Date(now.setDate(firstDayOfWeek));
+      break;
+    case "monthly":
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case "yearly":
+      startDate = new Date(now.getFullYear(), 0, 1);
+      break;
+    default:
+      throw new Error("Invalid interval provided");
   }
 
-  // Retrieve all items in the user's cart
-  const cartItems = await Cart.find({ user: req.user._id }).populate("image");
+  const endDate = new Date();
 
-  if (!cartItems || cartItems.length === 0) {
-    return next(new ErrorHandler("Your cart is empty", 400));
-  }
 
-  // Calculate total price of all items in the cart
-  const totalCost = cartItems.reduce((sum, item) => sum + item.image.price, 0);
 
-  // Check if the user has enough coins in their wallet
-  if (user.wallet < totalCost) {
-    return next(
-      new ErrorHandler(
-        "Insufficient coins. Please recharge your wallet.",
-        400
-      )
-    );
-  }
+  // Image Selling Revenue
+  const imageRevenue = await Image.aggregate([
+    { $unwind: "$sold_details" },
+    { $match: { "sold_details.date": { $gte: startDate, $lte: endDate } } },
+    { $group: { _id: null, total: { $sum: "$sold_details.price" } } },
+  ]);
 
-  // Deduct total cost from user's wallet
-  user.wallet -= totalCost;
+  // Ad Revenue
+  const ad-revenue = await AdRevenue.aggregate([
+    { $match: { date: { $gte: startDate, $lte: endDate } } },
+    { $group: { _id: null, total: { $sum: "$amount" } } },
+  ]);
 
-  // Update sold_details for each image and user's purchased_images
-  for (const cartItem of cartItems) {
-    const image = cartItem.image;
+  // Coin Sales (if you have a `Transaction` model or equivalent)
+  const coin revenue = await Transaction.aggregate([
+    { $match: { date: { $gte: startDate, $lte: endDate } } },
+    { $group: { _id: null, total: { $sum: "$amount" } } },
+  ]);
 
-    // Add sold details to the image
-    image.sold_details.push({
-      buyer: user._id,
-      date: new Date(),
-      price: image.price,
-    });
+  const totalEarnings =
+    (imageRevenue[0]?.total || 0) +
+    (adRevenue[0]?.total || 0) +
+    (coinRevenue[0]?.total || 0);
 
-    // Update image stats
-    image.sold_count += 1;
-
-    // Add image to user's purchased images
-    user.purchased_images.push({ image: image._id });
-
-    // Save the image
-    await image.save();
-  }
-
-  // Clear the user's cart
-  await Cart.deleteMany({ user: req.user._id });
-
-  // Save the user
-  await user.save();
-
-  res.status(200).json({
-    success: true,
-    statusCode: 200,
-    message: "All cart items purchased successfully",
-    totalCost,
-    purchasedImages: cartItems.map((item) => ({
-      imageId: item.image._id,
-      title: item.image.title,
-      price: item.image.price,
-    })),
-  });
-});
-exports.createGameResult = catchAsyncErrors(async (req, res, next) => {
-  const { imageId, duration } = req.body;
-
-  if (duration === 0.00) {
-    return res.status(400).json({
-      success: false,
-      message: "Game result not created because duration is 0.00",
-    });
-  }
-
-  const image = await Image.findById(imageId);
-  if (!image) {
-    return next(new ErrorHandler("Image not found.", 404));
-  }
-
-  const purchasedImage = req.user.purchased_images.find(
-    (img) => img.image.toString() === imageId && !img.isUsedForGame
-  );
-
-  if (!purchasedImage) {
-    return next(new ErrorHandler("Please buy the image or wait 15 days."));
-  }
-
-  // Create a new game result
-  const newGameResult = await GameResult.create({
-    userId: req.user._id,
-    imageId,
-    duration,
-  });
-
-  // Check if the user is already on today's leaderboard
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Start of the day
-  const userLeaderBoardEntry = await GameLeaderBoard.findOne({
-    user: req.user._id,
-    createdAt: { $gte: today }, // Entries created today
-  });
-
-  if (userLeaderBoardEntry) {
-    // Update only if the new duration is shorter
-    if (duration < userLeaderBoardEntry.duration) {
-      userLeaderBoardEntry.duration = duration;
-      await userLeaderBoardEntry.save();
-    }
-  } else {
-    // Add a new leaderboard entry if the user doesn't have one for today
-    await GameLeaderBoard.create({
-      user: req.user._id,
-      duration,
-    });
-  }
-
-  // Mark the image as used for a game
-  purchasedImage.isUsedForGame = true;
-  purchasedImage.played_at = new Date();
-  await req.user.save();
-
-  res.status(200).json({
-    success: true,
-    message: "Game result created successfully and leaderboard updated.",
-    newGameResult,
-  });
-});
+  return total_earnings;
+};
+};
