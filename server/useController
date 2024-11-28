@@ -1,99 +1,94 @@
-const get_earnings = async (interval) => {
-  const now = new Date();
-  let startDate;
+exports.getWeeklyTargetGraph = catchAsyncErrors(async (req, res, next) => {
+  const userId = req.user._id;
 
-  switch (interval) {
-    case "daily":
-      startDate = new Date(now.setHours(0, 0, 0, 0));
-      break;
-    case "weekly":
-      const firstDayOfWeek = now.getDate() - now.getDay();
-      startDate = new Date(now.setDate(firstDayOfWeek));
-      break;
-    case "monthly":
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
-    case "yearly":
-      startDate = new Date(now.getFullYear(), 0, 1);
-      break;
-    default:
-      throw new Error("Invalid interval provided");
+  if (!userId) {
+    return next(new ErrorHandler("User ID is required", 400));
   }
 
-  const endDate = new Date();
+  const today = new Date();
+  const startOfWeek = (date, weeksAgo) => {
+    const result = new Date(date);
+    result.setDate(result.getDate() - result.getDay() - weeksAgo * 7);
+    result.setHours(0, 0, 0, 0);
+    return result;
+  };
 
+  const endOfWeek = (date, weeksAgo) => {
+    const result = new Date(startOfWeek(date, weeksAgo));
+    result.setDate(result.getDate() + 6);
+    result.setHours(23, 59, 59, 999);
+    return result;
+  };
 
-
-  // Image Selling Revenue
-  const imageRevenue = await Image.aggregate([
+  // Fetch sales data for the past 4 weeks
+  const salesData = await Image.aggregate([
     { $unwind: "$sold_details" },
-    { $match: { "sold_details.date": { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: null, total: { $sum: "$sold_details.price" } } },
+    { $match: { "sold_details.date": { $exists: true }, owner: userId } },
+    {
+      $group: {
+        _id: {
+          week: { $isoWeek: "$sold_details.date" },
+          year: { $isoYear: "$sold_details.date" },
+        },
+        weeklySales: { $sum: 1 }, // Count of sales
+      },
+    },
+    {
+      $sort: { "_id.year": -1, "_id.week": -1 },
+    },
   ]);
 
-  // Ad Revenue
-  const ad-revenue = await AdRevenue.aggregate([
-    { $match: { date: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: null, total: { $sum: "$amount" } } },
-  ]);
+  const targets = [];
+  const targetAchievedPercentages = [];
+// Random initial target (5-10)
+  let randomTarget = Math.floor(Math.random() * (10 - 5 + 1)) + 5; 
+  let averageTargetAchievement = 0;
 
-  // Coin Sales (if you have a `Transaction` model or equivalent)
-  const coin revenue = await Transaction.aggregate([
-    { $match: { date: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: null, total: { $sum: "$amount" } } },
-  ]);
+  for (let i = 0; i < 4; i++) {
+    const start = startOfWeek(today, i);
+    const end = endOfWeek(today, i);
 
-  const totalEarnings =
-    (imageRevenue[0]?.total || 0) +
-    (adRevenue[0]?.total || 0) +
-    (coinRevenue[0]?.total || 0);
+    const weeklySale = salesData.find(
+      (weekData) =>
+        new Date(weekData._id.year, 0, 1 + (weekData._id.week - 1) * 7) >= start &&
+        new Date(weekData._id.year, 0, 1 + (weekData._id.week - 1) * 7) <= end
+    );
 
-  return total_earnings;
-};
-};
+    const salesCount = weeklySale ? weeklySale.weeklySales : 0;
 
-const getExpenses = async (interval) => {
-  const now = new Date();
-  let startDate;
-  if (interval === "daily") {
-    startDate = new Date(now.setHours(0, 0, 0, 0));
-  } else if (interval === "weekly") {
-    const firstDayOfWeek = now.getDate() - now.getDay();
-    startDate = new Date(now.setDate(firstDayOfWeek));
-  } else if (interval === "monthly") {
-    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-  } else if (interval === "yearly") {
-    startDate = new Date(now.getFullYear(), 0, 1);
+    // Assign target for the current week
+    let target;
+    if (i === 0) {
+      target = randomTarget; // First week's target is random
+    } else {
+      const lastWeekSales = targets[i - 1] < salesCount ? salesCount : targets[i - 1];
+     // Increment by 10% of last week's actual sales or target
+      target = Math.ceil(lastWeekSales * 1.1); 
+    }
+
+    targets.unshift(target);
+
+    // Calculate percentage of target fulfilled
+    const percentage = salesCount > 0 ? Math.min((salesCount / target) * 100, 100) : 0;
+    targetAchievedPercentages.unshift(percentage);
+
+    // Update average target achievement
+    averageTargetAchievement += percentage;
   }
 
-  const endDate = new Date();
+  // Calculate final average target fulfillment
+  averageTargetAchievement /= 4;
 
-  // Physical prizes
-  const physicalPrizeExpenses = await Prize.aggregate([
-    {
-      $match: {
-        date: { $gte: startDate, $lte: endDate },
-        type: "physical",
-      },
+  res.status(200).send({
+    success: true,
+    graphData: {
+      weeks: ["Week 1", "Week 2", "Week 3", "Week 4"],
+      targets,
+      sales: salesData.slice(0, 4).map((data) => data.weeklySales || 0),
+      targetAchievedPercentages,
     },
-    { $group: { _id: null, total: { $sum: "$value" } } },
-  ]);
+    averageTargetAchievement: averageTargetAchievement.toFixed(2),
+  });
+});
 
-  // Coin prizes
-  const coinPrizeExpenses = await Prize.aggregate([
-    {
-      $match: {
-        date: { $gte: startDate, $lte: endDate },
-        type: "coin",
-      },
-    },
-    { $group: { _id: null, total: { $sum: "$value" } } },
-  ]);
-
-  const totalExpenses =
-    (physicalPrizeExpenses[0]?.total || 0) +
-    (coinPrizeExpenses[0]?.total || 0);
-
-  return totalExpenses;
-};
 
