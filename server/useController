@@ -202,3 +202,186 @@ exports.getChartData = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Failed to fetch chart data", 500));
   }
 });
+
+
+exports.getFinancialChartData = catchAsyncErrors(async (req, res, next) => {
+  const { interval = "daily" } = req.body;
+
+  const validIntervals = ["daily", "weekly", "monthly", "yearly"];
+  if (!validIntervals.includes(interval)) {
+    return next(new ErrorHandler("Invalid interval provided", 400));
+  }
+
+  const now = new Date();
+  let startDate, endDate;
+
+  // Determine the time range
+  switch (interval) {
+    case "daily":
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 1);
+      break;
+
+    case "weekly":
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - now.getDay()); // Start of the week (Sunday)
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 7);
+      break;
+
+    case "monthly":
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      break;
+
+    case "yearly":
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear() + 1, 0, 1);
+      break;
+
+    default:
+      return next(new ErrorHandler("Invalid interval provided", 400));
+  }
+
+  // Helper to group data for intervals
+  let groupStage;
+  switch (interval) {
+    case "daily":
+      groupStage = { $dateToString: { format: "%H:00", date: "$date" } };
+      break;
+    case "weekly":
+      groupStage = { $dayOfWeek: "$date" }; // MongoDB days (1 = Sunday, 7 = Saturday)
+      break;
+    case "monthly":
+      groupStage = { $dayOfMonth: "$date" };
+      break;
+    case "yearly":
+      groupStage = { $month: "$date" }; // MongoDB months (1 = January, 12 = December)
+      break;
+  }
+
+  try {
+    // Revenue Aggregation
+    const imageRevenue = await Image.aggregate([
+      { $unwind: "$sold_details" },
+      { $match: { "sold_details.date": { $gte: startDate, $lt: endDate } } },
+      { $group: { _id: groupStage, total: { $sum: "$sold_details.price" } } },
+    ]);
+
+    const adRevenue = await Sponsor.aggregate([
+      { $match: { date: { $gte: startDate, $lt: endDate } } },
+      { $group: { _id: groupStage, total: { $sum: "$amount" } } },
+    ]);
+
+    const coinRevenue = await Coin.aggregate([
+      { $match: { date: { $gte: startDate, $lt: endDate } } },
+      { $group: { _id: groupStage, total: { $sum: "$amount" } } },
+    ]);
+
+    // Expenses Aggregation
+    const physicalPrizeExpenses = await Prize.aggregate([
+      {
+        $match: {
+          date: { $gte: startDate, $lt: endDate },
+          type: "physical",
+        },
+      },
+      { $group: { _id: groupStage, total: { $sum: "$value" } } },
+    ]);
+
+    const coinPrizeExpenses = await Prize.aggregate([
+      {
+        $match: {
+          date: { $gte: startDate, $lt: endDate },
+          type: "coin",
+        },
+      },
+      { $group: { _id: groupStage, total: { $sum: "$value" } } },
+    ]);
+
+    // Combine data
+    const combinedData = {};
+    [...imageRevenue, ...adRevenue, ...coinRevenue].forEach((item) => {
+      if (!combinedData[item._id]) combinedData[item._id] = { earnings: 0, expenses: 0 };
+      combinedData[item._id].earnings += item.total;
+    });
+
+    [...physicalPrizeExpenses, ...coinPrizeExpenses].forEach((item) => {
+      if (!combinedData[item._id]) combinedData[item._id] = { earnings: 0, expenses: 0 };
+      combinedData[item._id].expenses += item.total;
+    });
+
+    // Format response based on interval
+    let formattedData;
+    switch (interval) {
+      case "daily": {
+        const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
+        formattedData = hours.map((hour) => ({
+          hour,
+          earnings: combinedData[hour]?.earnings || 0,
+          expenses: combinedData[hour]?.expenses || 0,
+        }));
+        break;
+      }
+      case "weekly": {
+        const daysOfWeek = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ];
+        formattedData = daysOfWeek.map((day, index) => ({
+          day,
+          earnings: combinedData[index + 1]?.earnings || 0, // MongoDB week days are 1-based
+          expenses: combinedData[index + 1]?.expenses || 0,
+        }));
+        break;
+      }
+      case "monthly": {
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        formattedData = Array.from({ length: daysInMonth }, (_, i) => ({
+          day: i + 1,
+          earnings: combinedData[i + 1]?.earnings || 0,
+          expenses: combinedData[i + 1]?.expenses || 0,
+        }));
+        break;
+      }
+      case "yearly": {
+        const months = [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December",
+        ];
+        formattedData = months.map((month, index) => ({
+          month,
+          earnings: combinedData[index + 1]?.earnings || 0, // MongoDB months are 1-based
+          expenses: combinedData[index + 1]?.expenses || 0,
+        }));
+        break;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      interval,
+      chartData: formattedData,
+    });
+  } catch (error) {
+    return next(new ErrorHandler("Failed to fetch financial chart data", 500));
+  }
+});
+
