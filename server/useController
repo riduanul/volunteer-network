@@ -118,3 +118,126 @@ function ActivityGraph() {
 
 export default ActivityGraph;
 
+const processChartData = (chartData, interval) => {
+  switch (interval) {
+    case "yearly":
+      return chartData.map((item) => ({
+        name: item.month,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
+    case "monthly":
+      return chartData.map((item) => ({
+        name: `Day ${item.day}`,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
+    case "daily":
+      return chartData.map((item) => ({
+        name: item.hour,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
+    case "weekly":
+      return chartData.map((item) => ({
+        name: item.day,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
+    default:
+      return [];
+  }
+};
+
+import React, { useEffect } from "react";
+import { FiUser } from "react-icons/fi";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+import { useSelector, useDispatch } from "react-redux";
+import { fetchActivityData, setInterval } from "../redux/activitySlice";
+
+function ActivityGraph() {
+  const dispatch = useDispatch();
+  const { chartData, interval, loading } = useSelector((state) => state.activity);
+
+  useEffect(() => {
+    dispatch(fetchActivityData(interval)); // Fetch data when the interval changes
+  }, [dispatch, interval]);
+
+  const data = processChartData(chartData, interval);
+
+  return (
+    <div className="col-span-8 overflow-hidden rounded border border-stone-300">
+      <div className="p-4">
+        <h3 className="flex items-center gap-1.5 font-medium">
+          <FiUser /> Activity
+        </h3>
+        <div className="mt-2">
+          <button
+            className={`px-4 py-1 mr-2 ${
+              interval === "yearly" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("yearly"))}
+          >
+            Yearly
+          </button>
+          <button
+            className={`px-4 py-1 mr-2 ${
+              interval === "monthly" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("monthly"))}
+          >
+            Monthly
+          </button>
+          <button
+            className={`px-4 py-1 mr-2 ${
+              interval === "daily" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("daily"))}
+          >
+            Daily
+          </button>
+          <button
+            className={`px-4 py-1 ${
+              interval === "weekly" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("weekly"))}
+          >
+            Weekly
+          </button>
+        </div>
+      </div>
+      <div className="h-64 px-4">
+        {loading ? (
+          <p>Loading...</p>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart width={500} height={300} data={data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" padding={{ left: 30, right: 30 }} />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="count" stroke="#8884d8" activeDot={{ r: 8 }} />
+              <Line type="monotone" dataKey="earnings" stroke="#82ca9d" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default ActivityGraph;
+if (req.query.role) {
+  searchCriteria.push({ role: req.query.role });
+}
+
