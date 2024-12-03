@@ -1,387 +1,120 @@
-exports.getChartData = catchAsyncErrors(async (req, res, next) => {
-  const { interval = "daily" } = req.query;
-
-  const validIntervals = ["daily", "weekly", "monthly", "yearly"];
-  if (!validIntervals.includes(interval)) {
-    return next(new ErrorHandler("Invalid interval provided", 400));
-  }
-
-  const userId = req.user._id;
-  if (!userId) {
-    return next(new ErrorHandler("User ID is required", 400));
-  }
-
-  // Determine time range based on interval
-  const now = new Date();
-  let startDate, endDate;
-
+const processChartData = (chartData, interval) => {
   switch (interval) {
-    case "daily":
-      // Start of today
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); 
-      endDate = new Date(startDate);
-      // Start of the next day
-      endDate.setDate(endDate.getDate() + 1); 
-      break;
-
-    case "weekly":
-      startDate = new Date(now);
-      // Start of the current week (Sunday)
-      startDate.setDate(now.getDate() - now.getDay()); 
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(startDate);
-      // End of the current week
-      endDate.setDate(startDate.getDate() + 7); 
-      break;
-
-    case "monthly":
-      // Start of the current month
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1); 
-      // Start of the next month
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1); 
-      break;
-
     case "yearly":
-       // Start of the current year
-      startDate = new Date(now.getFullYear(), 0, 1);
-      // Start of the next year
-      endDate = new Date(now.getFullYear() + 1, 0, 1); 
-      break;
-
+      return chartData.map((item) => ({
+        name: item.month,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
+    case "monthly":
+      return chartData.map((item) => ({
+        name: `Day ${item.day}`,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
+    case "daily":
+      return chartData.map((item) => ({
+        name: item.hour,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
+    case "weekly":
+      return chartData.map((item) => ({
+        name: item.day,
+        count: item.count,
+        earnings: item.totalEarnings,
+      }));
     default:
-      return next(new ErrorHandler("Invalid interval provided", 400));
+      return [];
   }
+};
 
-  const matchStage = {
-    $match: {
-      owner: userId,
-      "sold_details.date": { $gte: startDate, $lt: endDate }, 
-    },
-  };
+import React, { useEffect } from "react";
+import { FiUser } from "react-icons/fi";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+import { useSelector, useDispatch } from "react-redux";
+import { fetchActivityData, setInterval } from "../redux/activitySlice";
 
-  let groupStage;
+function ActivityGraph() {
+  const dispatch = useDispatch();
+  const { chartData, interval, loading } = useSelector((state) => state.activity);
 
-  // Set group stage based on the interval
-  switch (interval) {
-    case "daily":
-      groupStage = {
-        $group: {
-          _id: {
-            $dateToString: { format: "%H:00", date: "$sold_details.date" },
-          },
-          count: { $sum: 1 },
-          totalEarnings: { $sum: "$sold_details.price" },
-        },
-      };
-      break;
+  useEffect(() => {
+    dispatch(fetchActivityData(interval)); // Fetch data when the interval changes
+  }, [dispatch, interval]);
 
-    case "weekly":
-      groupStage = {
-        $group: {
-          _id: { $dayOfWeek: "$sold_details.date" },
-          count: { $sum: 1 },
-          totalEarnings: { $sum: "$sold_details.price" },
-        },
-      };
-      break;
+  const data = processChartData(chartData, interval);
 
-    case "monthly":
-      groupStage = {
-        $group: {
-          _id: { $dayOfMonth: "$sold_details.date" },
-          count: { $sum: 1 },
-          totalEarnings: { $sum: "$sold_details.price" },
-        },
-      };
-      break;
+  return (
+    <div className="col-span-8 overflow-hidden rounded border border-stone-300">
+      <div className="p-4">
+        <h3 className="flex items-center gap-1.5 font-medium">
+          <FiUser /> Activity
+        </h3>
+        <div className="mt-2">
+          <button
+            className={`px-4 py-1 mr-2 ${
+              interval === "yearly" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("yearly"))}
+          >
+            Yearly
+          </button>
+          <button
+            className={`px-4 py-1 mr-2 ${
+              interval === "monthly" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("monthly"))}
+          >
+            Monthly
+          </button>
+          <button
+            className={`px-4 py-1 mr-2 ${
+              interval === "daily" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("daily"))}
+          >
+            Daily
+          </button>
+          <button
+            className={`px-4 py-1 ${
+              interval === "weekly" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => dispatch(setInterval("weekly"))}
+          >
+            Weekly
+          </button>
+        </div>
+      </div>
+      <div className="h-64 px-4">
+        {loading ? (
+          <p>Loading...</p>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart width={500} height={300} data={data}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" padding={{ left: 30, right: 30 }} />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="count" stroke="#8884d8" activeDot={{ r: 8 }} />
+              <Line type="monotone" dataKey="earnings" stroke="#82ca9d" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
 
-    case "yearly":
-      groupStage = {
-        $group: {
-          _id: { $month: "$sold_details.date" },
-          count: { $sum: 1 },
-          totalEarnings: { $sum: "$sold_details.price" },
-        },
-      };
-      break;
-  }
-
-  try {
-    // Aggregate data
-    const chartData = await Image.aggregate([
-      { $unwind: "$sold_details" },
-      matchStage,
-      groupStage,
-      { $sort: { "_id": 1 } },
-      {
-        $facet: {
-          intervalData: [],
-          totals: [
-            {
-              $group: {
-                _id: null,
-                totalCount: { $sum: "$count" },
-                totalEarnings: { $sum: "$totalEarnings" },
-              },
-            },
-          ],
-        },
-      },
-    ]);
-
-    const intervalData = chartData[0]?.intervalData || [];
-    const totals = chartData[0]?.totals[0] || { totalCount: 0, totalEarnings: 0 };
-
-    // Prepare response data
-    let formattedData;
-    switch (interval) {
-      case "daily":
-        const allHours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
-        formattedData = allHours.map((hour) => {
-          const data = intervalData.find((item) => item._id === hour);
-          return {
-            hour,
-            count: data ? data.count : 0,
-            totalEarnings: data ? data.totalEarnings : 0,
-          };
-        });
-        break;
-
-      case "weekly":
-        const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        formattedData = daysOfWeek.map((day, index) => {
-          const data = intervalData.find((item) => item._id === index + 1);
-          return {
-            day,
-            count: data ? data.count : 0,
-            totalEarnings: data ? data.totalEarnings : 0,
-          };
-        });
-        break;
-
-      case "monthly":
-        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        formattedData = Array.from({ length: daysInMonth }, (_, i) => {
-          const day = i + 1;
-          const data = intervalData.find((item) => item._id === day);
-          return {
-            day,
-            count: data ? data.count : 0,
-            totalEarnings: data ? data.totalEarnings : 0,
-          };
-        });
-        break;
-
-      case "yearly":
-        const months = [
-          "January", "February", "March", "April", "May", "June",
-          "July", "August", "September", "October", "November", "December",
-        ];
-        formattedData = months.map((month, index) => {
-          const data = intervalData.find((item) => item._id === index + 1);
-          return {
-            month,
-            count: data ? data.count : 0,
-            totalEarnings: data ? data.totalEarnings : 0,
-          };
-        });
-        break;
-    }
-
-    res.status(200).json({
-      success: true,
-      interval,
-      date: now.toISOString().split("T")[0],
-      chartData: formattedData,
-      totals: {
-        totalCount: totals.totalCount,
-        totalEarnings: totals.totalEarnings,
-      },
-    });
-  } catch (error) {
-    return next(new ErrorHandler("Failed to fetch chart data", 500));
-  }
-});
-
-
-exports.getFinancialChartData = catchAsyncErrors(async (req, res, next) => {
-  const { interval = "daily" } = req.body;
-
-  const validIntervals = ["daily", "weekly", "monthly", "yearly"];
-  if (!validIntervals.includes(interval)) {
-    return next(new ErrorHandler("Invalid interval provided", 400));
-  }
-
-  const now = new Date();
-  let startDate, endDate;
-
-  // Determine the time range
-  switch (interval) {
-    case "daily":
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + 1);
-      break;
-
-    case "weekly":
-      startDate = new Date(now);
-      startDate.setDate(now.getDate() - now.getDay()); // Start of the week (Sunday)
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + 7);
-      break;
-
-    case "monthly":
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      break;
-
-    case "yearly":
-      startDate = new Date(now.getFullYear(), 0, 1);
-      endDate = new Date(now.getFullYear() + 1, 0, 1);
-      break;
-
-    default:
-      return next(new ErrorHandler("Invalid interval provided", 400));
-  }
-
-  // Helper to group data for intervals
-  let groupStage;
-  switch (interval) {
-    case "daily":
-      groupStage = { $dateToString: { format: "%H:00", date: "$date" } };
-      break;
-    case "weekly":
-      groupStage = { $dayOfWeek: "$date" }; // MongoDB days (1 = Sunday, 7 = Saturday)
-      break;
-    case "monthly":
-      groupStage = { $dayOfMonth: "$date" };
-      break;
-    case "yearly":
-      groupStage = { $month: "$date" }; // MongoDB months (1 = January, 12 = December)
-      break;
-  }
-
-  try {
-    // Revenue Aggregation
-    const imageRevenue = await Image.aggregate([
-      { $unwind: "$sold_details" },
-      { $match: { "sold_details.date": { $gte: startDate, $lt: endDate } } },
-      { $group: { _id: groupStage, total: { $sum: "$sold_details.price" } } },
-    ]);
-
-    const adRevenue = await Sponsor.aggregate([
-      { $match: { date: { $gte: startDate, $lt: endDate } } },
-      { $group: { _id: groupStage, total: { $sum: "$amount" } } },
-    ]);
-
-    const coinRevenue = await Coin.aggregate([
-      { $match: { date: { $gte: startDate, $lt: endDate } } },
-      { $group: { _id: groupStage, total: { $sum: "$amount" } } },
-    ]);
-
-    // Expenses Aggregation
-    const physicalPrizeExpenses = await Prize.aggregate([
-      {
-        $match: {
-          date: { $gte: startDate, $lt: endDate },
-          type: "physical",
-        },
-      },
-      { $group: { _id: groupStage, total: { $sum: "$value" } } },
-    ]);
-
-    const coinPrizeExpenses = await Prize.aggregate([
-      {
-        $match: {
-          date: { $gte: startDate, $lt: endDate },
-          type: "coin",
-        },
-      },
-      { $group: { _id: groupStage, total: { $sum: "$value" } } },
-    ]);
-
-    // Combine data
-    const combinedData = {};
-    [...imageRevenue, ...adRevenue, ...coinRevenue].forEach((item) => {
-      if (!combinedData[item._id]) combinedData[item._id] = { earnings: 0, expenses: 0 };
-      combinedData[item._id].earnings += item.total;
-    });
-
-    [...physicalPrizeExpenses, ...coinPrizeExpenses].forEach((item) => {
-      if (!combinedData[item._id]) combinedData[item._id] = { earnings: 0, expenses: 0 };
-      combinedData[item._id].expenses += item.total;
-    });
-
-    // Format response based on interval
-    let formattedData;
-    switch (interval) {
-      case "daily": {
-        const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
-        formattedData = hours.map((hour) => ({
-          hour,
-          earnings: combinedData[hour]?.earnings || 0,
-          expenses: combinedData[hour]?.expenses || 0,
-        }));
-        break;
-      }
-      case "weekly": {
-        const daysOfWeek = [
-          "Sunday",
-          "Monday",
-          "Tuesday",
-          "Wednesday",
-          "Thursday",
-          "Friday",
-          "Saturday",
-        ];
-        formattedData = daysOfWeek.map((day, index) => ({
-          day,
-          earnings: combinedData[index + 1]?.earnings || 0, // MongoDB week days are 1-based
-          expenses: combinedData[index + 1]?.expenses || 0,
-        }));
-        break;
-      }
-      case "monthly": {
-        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        formattedData = Array.from({ length: daysInMonth }, (_, i) => ({
-          day: i + 1,
-          earnings: combinedData[i + 1]?.earnings || 0,
-          expenses: combinedData[i + 1]?.expenses || 0,
-        }));
-        break;
-      }
-      case "yearly": {
-        const months = [
-          "January",
-          "February",
-          "March",
-          "April",
-          "May",
-          "June",
-          "July",
-          "August",
-          "September",
-          "October",
-          "November",
-          "December",
-        ];
-        formattedData = months.map((month, index) => ({
-          month,
-          earnings: combinedData[index + 1]?.earnings || 0, // MongoDB months are 1-based
-          expenses: combinedData[index + 1]?.expenses || 0,
-        }));
-        break;
-      }
-    }
-
-    res.status(200).json({
-      success: true,
-      interval,
-      chartData: formattedData,
-    });
-  } catch (error) {
-    return next(new ErrorHandler("Failed to fetch financial chart data", 500));
-  }
-});
+export default ActivityGraph;
 
